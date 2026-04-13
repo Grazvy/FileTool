@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Tool</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>File Tool</h1>
+            <p>Local file processing application</p>
+        </header>
+
+        <main>
+            <div id="status">
+                <p>Connecting to backend...</p>
+            </div>
+
+            <div id="app-content" style="display: none;">
+                <h2>File Processing</h2>
+                <p>Application is ready. File processing features will be implemented here.</p>
+                <button id="test-api">Test API Connection</button>
+                <div id="api-response"></div>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
