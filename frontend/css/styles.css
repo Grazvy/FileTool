@@ -1,4 +1,4 @@
-/* Basic styles for File Tool */
+/* Base styles */
 
 * {
     margin: 0;
@@ -7,64 +7,181 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     line-height: 1.6;
-    color: #333;
-    background-color: #f5f5f5;
+    color: #1f2937;
+    background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+    min-height: 100vh;
 }
 
 .container {
-    max-width: 1200px;
+    max-width: 980px;
     margin: 0 auto;
-    padding: 20px;
+    padding: 24px;
 }
 
 header {
     text-align: center;
-    margin-bottom: 40px;
+    margin-bottom: 28px;
 }
 
 header h1 {
-    color: #2c3e50;
-    margin-bottom: 10px;
+    color: #0f172a;
+    margin-bottom: 8px;
+    font-size: 2rem;
 }
 
 header p {
-    color: #7f8c8d;
-    font-size: 1.1em;
+    color: #475569;
+    font-size: 1rem;
 }
 
 main {
-    background: white;
+    background: #ffffff;
     padding: 30px;
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    border-radius: 16px;
+    border: 1px solid #dbe4ee;
+    box-shadow: 0 16px 28px rgba(15, 23, 42, 0.08);
 }
 
-#status {
-    text-align: center;
-    padding: 20px;
+.file-input-module {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
 }
 
-button {
-    background: #3498db;
-    color: white;
-    border: none;
-    padding: 10px 20px;
-    border-radius: 4px;
+.file-input-actions {
+    display: flex;
+    justify-content: flex-end;
+    min-height: 44px;
+}
+
+.remove-btn {
+    background: #dc2626;
+    color: #ffffff;
+    border: 0;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 0.95rem;
+    font-weight: 600;
     cursor: pointer;
-    font-size: 16px;
-    margin: 10px 0;
+    transition: background-color 140ms ease, transform 140ms ease, opacity 140ms ease;
 }
 
-button:hover {
-    background: #2980b9;
+.remove-btn:hover:not(:disabled) {
+    background: #b91c1c;
+    transform: translateY(-1px);
 }
 
-#api-response {
-    margin-top: 20px;
-    padding: 10px;
-    background: #ecf0f1;
+.remove-btn:disabled {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.file-strip {
+    width: 100%;
+    border: 2px dashed #cbd5e1;
+    border-radius: 14px;
+    background: #f8fafc;
+    padding: 14px;
+    transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.file-strip.is-drag-active {
+    border-color: #0ea5e9;
+    background: #e0f2fe;
+}
+
+.file-items {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+
+.file-items::-webkit-scrollbar {
+    height: 8px;
+}
+
+.file-items::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+}
+
+.file-tile {
+    flex: 0 0 112px;
+    min-height: 128px;
+    background: #ffffff;
+    border: 1px solid #d1d9e6;
+    border-radius: 12px;
+    padding: 10px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    position: relative;
+    cursor: pointer;
+    transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
+}
+
+.file-tile:hover {
+    transform: translateY(-1px);
+    border-color: #94a3b8;
+}
+
+.file-tile.is-selected {
+    border-color: #0ea5e9;
+    background: #eff6ff;
+}
+
+.file-tile-icon {
+    font-size: 2rem;
+    line-height: 1;
+}
+
+.file-tile-name {
+    width: 100%;
+    text-align: center;
+    font-size: 0.82rem;
+    color: #334155;
+    word-break: break-word;
+    line-height: 1.2;
+    max-height: 2.4em;
+    overflow: hidden;
+}
+
+.file-tile-check {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    width: 18px;
+    height: 18px;
     border-radius: 4px;
-    white-space: pre-wrap;
+    border: 2px solid #94a3b8;
+    background: #ffffff;
+}
+
+.file-tile.is-selected .file-tile-check {
+    border-color: #0284c7;
+    background: #0ea5e9;
+}
+
+.file-tile-plus .file-tile-icon {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.file-tile-plus .file-tile-check {
+    display: none;
+}
+
+.hidden-file-input {
+    display: none;
+}
+
+.helper-text {
+    margin-top: 10px;
+    color: #64748b;
+    font-size: 0.92rem;
 }

@@ -5,29 +5,36 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>File Tool</title>
     <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/responsive.css">
 </head>
 <body>
     <div class="container">
         <header>
             <h1>File Tool</h1>
-            <p>Local file processing application</p>
+            <p>Select files to prepare your next operation</p>
         </header>
 
         <main>
-            <div id="status">
-                <p>Connecting to backend...</p>
-            </div>
+            <section class="file-input-module" aria-label="File input and overview">
+                <div class="file-input-actions">
+                    <button id="remove-selected-btn" class="remove-btn" type="button" disabled>
+                        Remove
+                    </button>
+                </div>
 
-            <div id="app-content" style="display: none;">
-                <h2>File Processing</h2>
-                <p>Application is ready. File processing features will be implemented here.</p>
-                <button id="test-api">Test API Connection</button>
-                <div id="api-response"></div>
+                <div id="file-strip" class="file-strip" aria-label="File dropzone" tabindex="0">
+                    <div id="file-items" class="file-items" role="list"></div>
+                </div>
+
+                <input id="file-picker" class="hidden-file-input" type="file" multiple>
+            </section>
+            <div class="helper-text">
+                Drag files into the strip or use the plus button to add files.
             </div>
         </main>
     </div>
 
-    <script src="js/api.js"></script>
+    <script src="config.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

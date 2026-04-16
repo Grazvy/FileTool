@@ -2,14 +2,36 @@
 
 @media (max-width: 768px) {
     .container {
-        padding: 10px;
+        padding: 12px;
     }
 
     main {
-        padding: 20px;
+        padding: 16px;
     }
 
     header h1 {
-        font-size: 2em;
+        font-size: 1.7rem;
+    }
+
+    .file-input-actions {
+        min-height: 40px;
+    }
+
+    .remove-btn {
+        width: 100%;
+        padding: 11px 12px;
+    }
+
+    .file-tile {
+        flex: 0 0 98px;
+        min-height: 116px;
+    }
+
+    .file-tile-icon {
+        font-size: 1.8rem;
+    }
+
+    .file-tile-name {
+        font-size: 0.75rem;
     }
 }
