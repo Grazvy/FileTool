@@ -27,8 +27,8 @@ backend/            server package
   api/routes.py     HTTP layer: parse, validate, shape responses
   services/         processing logic, bytes in / bytes out
     loader.py       format detection and media-type/extension mapping
-    images.py       PNG <-> JPG, image -> PDF
-    pdf.py          page rendering and page removal
+    images.py       PNG <-> JPG, images -> PDF
+    pdf.py          page rendering and composition (merge, reorder, remove)
 frontend/           index.html, styles.css, app.js (served at /)
 launcher/
   app_launcher.py   port reservation, browser opening, signal handling
@@ -46,15 +46,20 @@ tests/              pytest suite over services and API
 ## API contract
 
 All endpoints are prefixed `/api`. Uploads use `multipart/form-data` with the field
-name `file`. Requests are stateless: the client sends the file it wants to act on
-with every request, and the server stores nothing.
+name `file`, repeated once per file where several are allowed. Requests are
+stateless: the client sends every file it wants to act on with every request, and
+the server stores nothing.
 
 | Endpoint | Request | Response |
 | --- | --- | --- |
 | `GET /health` | — | `{"status": "ok"}` |
-| `POST /load` | `file` | `{format, name, size, targets[], pages[]}`; `pages` holds `{index, width, height, image}` with `image` a PNG data URL (empty for images) |
-| `POST /convert` | `file`, `target` (`png`\|`jpg`\|`pdf`) | Converted file as a binary download |
-| `POST /pdf/remove-pages` | `file`, repeated `pages` (zero-based indices) | Edited PDF as a binary download |
+| `POST /load` | one `file` | `{format, name, size, targets[], multi_targets[], pages[]}`; `pages` holds `{index, width, height, image}` with `image` a PNG data URL (empty for images) |
+| `POST /convert` | one or more `file`, `target` (`png`\|`jpg`\|`pdf`) | Converted file as a binary download; several files are laid out as the pages of one document, in upload order, and only a `multi_targets` target accepts them |
+| `POST /pdf/compose` | one or more `file`, repeated `pages` as `document:page` (both zero-based) | A PDF holding exactly those pages, in that order, as a binary download |
+
+`/pdf/compose` is the single page-editing endpoint: the order of `pages` is the
+order of the result, pages left out are dropped, and references into several
+documents merge them. All uploads must be PDFs.
 
 Binary responses carry the correct `Content-Type` and
 `Content-Disposition: attachment; filename="…"`; the filename is derived from the
@@ -69,16 +74,49 @@ for the user and are shown verbatim in the UI. Unexpected exceptions stay 500s.
 - The format is detected from magic bytes, never from the filename or the browser's
   content type.
 - Uploads are held in memory only and capped by `Config.MAX_UPLOAD_BYTES` (100 MB).
-- Conversion targets are defined once, in `images.CONVERSION_TARGETS`, and the
-  frontend renders whatever `/load` reports — options are never hardcoded in the UI.
-- A page-removal request must leave at least one page.
+- Several files may be worked on at once, but they must all have the same format;
+  mixing is rejected.
+- Conversion targets are defined once, in `images.CONVERSION_TARGETS`, and those
+  able to hold several images at once in `images.MULTI_TARGETS`. The frontend
+  renders whatever `/load` reports — options are never hardcoded in the UI.
+- A composed PDF must keep at least one page.
 
 ## Frontend conventions
 
 - One panel per stage: input, PDF pages or convert options, result.
 - PDFs show the scrollable page list; images show the conversion options. Never both.
-- `−` marks a page for removal (toggle, no immediate request); "Apply changes" sends
-  one request with all marked indices.
+- The editing state is two values: `state.documents`, every uploaded file of the
+  current format in upload order, and `state.order`, the sequence being built as
+  `{doc, page}` references into them. Removing drops a reference, moving swaps two,
+  adding a file appends its pages. Nothing is sent until the panel's button is
+  pressed, and the whole order goes in that one request.
+- The dropzone starts a new session; "+ Add file" in the input panel extends the
+  current one with more files of the same format. A different format is refused
+  with a message naming both.
+- `−`, `↑` and `↓` sit on every card, in the panel list and in the expanded
+  preview. Labels number the current order, so moving a page renumbers what
+  follows; with several documents loaded each card also names its source file.
+  The last remaining entry cannot be removed, so a request can never empty the
+  document.
+- The primary button says what it will do: "Apply changes" for one document,
+  "Merge & apply changes" (PDF) or "Merge & convert" (images) for several. It is
+  enabled only when the order differs from what the backend last produced.
+- One image keeps the plain preview; several switch to the same card list, and the
+  conversion targets narrow to `multi_targets`, so ordering the files orders the
+  pages of the merged document.
+- Each preview panel carries an "Expand" button top right that opens the same
+  content, larger, in a modal `<dialog>` with its own scroll area. It closes on
+  Escape, the backdrop or "Close". Pages are never upscaled past the resolution
+  `Config.PREVIEW_DPI` rendered them at.
+- Cards are built once per `doc:page` and reused across renders, so reordering
+  moves nodes instead of re-decoding previews. The caches are dropped whenever the
+  documents behind them change.
+- Undo/redo sit next to the primary button and in the popup header (`ctrl`/`cmd+z`,
+  add `shift` to redo). A history step is a snapshot of the whole editable state —
+  documents, order, result — pushed when files are added, when a page is removed or
+  moved, and when a change is applied. Undo therefore also steps back over an apply
+  or a merge, restoring the previous documents together with their pending edits,
+  and the result panel follows the step. A new upload starts a fresh history.
 - The result of an edit becomes the working file, so operations can be stacked.
 - Download happens client-side from the blob returned by the last operation.
 

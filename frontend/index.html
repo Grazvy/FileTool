@@ -14,35 +14,52 @@
 
   <main class="layout">
     <section class="panel" id="input-panel">
-      <h2>Input</h2>
+      <div class="panel-head">
+        <h2>Input</h2>
+        <button type="button" class="ghost-button" id="add-button" title="Add another file of the same kind" hidden>+ Add file</button>
+      </div>
       <label class="dropzone" id="dropzone" for="file-input">
-        <span class="dropzone-title">Drop a file here or click to choose</span>
+        <span class="dropzone-title">Drop files here or click to choose</span>
         <span class="dropzone-hint">PDF, PNG or JPG</span>
-        <input type="file" id="file-input" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" hidden>
+        <input type="file" id="file-input" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" multiple hidden>
       </label>
+      <input type="file" id="add-input" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" multiple hidden>
       <p class="file-meta" id="file-meta" hidden></p>
       <p class="message" id="message" hidden></p>
     </section>
 
     <section class="panel" id="pdf-panel" hidden>
-      <h2>Pages</h2>
-      <p class="panel-hint">Use &minus; to mark a page for removal, then apply the changes.</p>
+      <div class="panel-head">
+        <h2>Pages</h2>
+        <button type="button" class="ghost-button" id="pdf-expand" title="Expand the preview">Expand</button>
+      </div>
+      <p class="panel-hint">Use &minus; to remove a page and &uarr; &darr; to move it, undo to step back, then apply the changes.</p>
       <div class="page-list" id="page-list"></div>
       <div class="actions">
         <button type="button" class="primary" id="apply-button" disabled>Apply changes</button>
+        <button type="button" class="ghost-button" id="undo-button" title="Undo" disabled>Undo</button>
+        <button type="button" class="ghost-button" id="redo-button" title="Redo" disabled>Redo</button>
         <span class="action-note" id="pdf-note"></span>
       </div>
     </section>
 
     <section class="panel" id="convert-panel" hidden>
-      <h2>Convert</h2>
-      <div class="image-preview"><img id="image-preview" alt="Preview of the selected image"></div>
+      <div class="panel-head">
+        <h2>Convert</h2>
+        <button type="button" class="ghost-button" id="image-expand" title="Expand the preview">Expand</button>
+      </div>
+      <p class="panel-hint" id="convert-hint" hidden>Use &minus; to drop a file and &uarr; &darr; to order them; they become the pages of one document.</p>
+      <div class="image-preview" id="image-preview-frame"><img id="image-preview" alt="Preview of the selected image"></div>
+      <div class="page-list" id="image-list" hidden></div>
       <fieldset class="targets">
         <legend>Convert to</legend>
         <div id="target-options"></div>
       </fieldset>
       <div class="actions">
         <button type="button" class="primary" id="convert-button" disabled>Convert</button>
+        <button type="button" class="ghost-button" id="image-undo" title="Undo" disabled>Undo</button>
+        <button type="button" class="ghost-button" id="image-redo" title="Redo" disabled>Redo</button>
+        <span class="action-note" id="convert-note"></span>
       </div>
     </section>
 
@@ -54,6 +71,17 @@
       </div>
     </section>
   </main>
+
+  <dialog class="preview-dialog" id="preview-dialog">
+    <div class="preview-head">
+      <h2 id="preview-title">Preview</h2>
+      <span class="action-note" id="preview-note"></span>
+      <button type="button" class="ghost-button" id="preview-undo" title="Undo" disabled>Undo</button>
+      <button type="button" class="ghost-button" id="preview-redo" title="Redo" disabled>Redo</button>
+      <button type="button" class="ghost-button" id="preview-close" title="Close the preview">Close</button>
+    </div>
+    <div class="preview-body" id="preview-body"></div>
+  </dialog>
 
   <script src="app.js"></script>
 </body>

@@ -7,7 +7,7 @@ from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import Response
 
 from backend.config import Config
-from backend.errors import UploadTooLargeError
+from backend.errors import PdfError, UnsupportedFormatError, UploadTooLargeError
 from backend.services import images, loader, pdf
 
 router = APIRouter(prefix="/api")
@@ -33,6 +33,7 @@ async def load(file: UploadFile = File(...)) -> dict:
         "name": _safe_name(file.filename, fmt),
         "size": len(data),
         "targets": list(images.targets_for(fmt)),
+        "multi_targets": list(images.multi_targets_for(fmt)),
         "pages": [],
     }
     if fmt == loader.PDF:
@@ -49,25 +50,55 @@ async def load(file: UploadFile = File(...)) -> dict:
 
 
 @router.post("/convert")
-async def convert(file: UploadFile = File(...), target: str = Form(...)) -> Response:
-    """Convert an image to another format and stream the result back."""
-    data = await _read(file)
-    source_fmt = loader.detect_format(data)
+async def convert(file: list[UploadFile] = File(...), target: str = Form(...)) -> Response:
+    """Convert an image, or combine several of one format, into the target format.
+
+    Files are combined in the order they were uploaded, one image per page.
+    """
+    datas = [await _read(upload) for upload in file]
+    source_fmt = _one_format(datas)
     target_fmt = target.strip().lower()
-    converted = images.convert(data, source_fmt, target_fmt)
-    return _download(converted, target_fmt, _stem(file.filename, source_fmt))
+    converted = images.combine(datas, source_fmt, target_fmt)
+    return _download(converted, target_fmt, _stem(file[0].filename, source_fmt))
 
 
-@router.post("/pdf/remove-pages")
-async def remove_pages(
-    file: UploadFile = File(...),
-    pages: list[int] = Form(default=[]),
+@router.post("/pdf/compose")
+async def compose(
+    file: list[UploadFile] = File(...),
+    pages: list[str] = Form(default=[]),
 ) -> Response:
-    """Return the uploaded PDF without the given zero based page indices."""
-    data = await _read(file)
-    loader.detect_format(data)  # rejects anything that is not a supported input
-    result = pdf.remove_pages(data, pages)
-    return _download(result, loader.PDF, _stem(file.filename, loader.PDF))
+    """Build one PDF from the uploaded PDFs, taking the pages named by `pages`.
+
+    A page is written as `document:page`, both zero based, and the order of the
+    list is the order of the result — so merging, removing and reordering are all
+    the same request.
+    """
+    datas = [await _read(upload) for upload in file]
+    if _one_format(datas) != loader.PDF:
+        raise UnsupportedFormatError("Only PDF files can be merged into a PDF.")
+    result = pdf.compose(datas, _page_refs(pages))
+    return _download(result, loader.PDF, _stem(file[0].filename, loader.PDF))
+
+
+def _one_format(datas: list[bytes]) -> str:
+    """Detect the format of every upload and require them all to be the same."""
+    if not datas:
+        raise UnsupportedFormatError("No file was uploaded.")
+    formats = {loader.detect_format(data) for data in datas}
+    if len(formats) > 1:
+        raise UnsupportedFormatError("All files must have the same format.")
+    return formats.pop()
+
+
+def _page_refs(values: list[str]) -> list[tuple[int, int]]:
+    refs = []
+    for value in values:
+        document, _, index = value.partition(":")
+        try:
+            refs.append((int(document), int(index)))
+        except ValueError:
+            raise PdfError(f'"{value}" is not a document:page reference.') from None
+    return refs
 
 
 async def _read(file: UploadFile) -> bytes:

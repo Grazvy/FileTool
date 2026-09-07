@@ -56,6 +56,37 @@ body {
   color: var(--muted);
 }
 
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.panel-head h2 { margin-bottom: 0; }
+
+.ghost-button {
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ghost-button:not(:disabled):hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ghost-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .panel-hint {
   margin: -4px 0 12px;
   color: var(--muted);
@@ -125,13 +156,10 @@ body {
   border-radius: 8px;
 }
 
-.page-card.marked {
-  opacity: 0.45;
-  border-color: var(--danger);
-}
-
 .page-card img {
   width: 120px;
+  max-height: 160px;
+  object-fit: contain;
   border: 1px solid var(--line);
   background: #fff;
 }
@@ -141,26 +169,38 @@ body {
   font-weight: 600;
 }
 
-.page-dimensions {
+.page-detail {
   display: block;
   font-weight: 400;
   color: var(--muted);
   font-size: 12px;
 }
 
-.remove-button {
+.page-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.round-button {
   width: 32px;
   height: 32px;
-  font-size: 20px;
+  font-size: 17px;
   line-height: 1;
   border: 1px solid var(--line);
   border-radius: 50%;
   background: var(--panel);
-  color: var(--danger);
+  color: var(--muted);
   cursor: pointer;
 }
 
-.remove-button:hover { border-color: var(--danger); }
+.round-button.remove {
+  font-size: 20px;
+  color: var(--danger);
+}
+
+.round-button:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+.round-button.remove:not(:disabled):hover { border-color: var(--danger); color: var(--danger); }
 
 .image-preview {
   display: flex;
@@ -206,6 +246,110 @@ body {
 .action-note {
   color: var(--muted);
   font-size: 13px;
+}
+
+.preview-dialog {
+  width: min(1000px, 92vw);
+  height: min(900px, 90vh);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  overflow: hidden;
+}
+
+.preview-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-dialog::backdrop {
+  background: rgba(28, 32, 39, 0.55);
+}
+
+.preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.preview-head h2 {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-head .action-note { flex: 0 0 auto; }
+
+.preview-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px;
+  background: #fafbfc;
+}
+
+.preview-page {
+  margin: 0;
+  width: 100%;
+  max-width: 760px;
+  flex: 0 0 auto;
+}
+
+.preview-frame {
+  position: relative;
+}
+
+.preview-page img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.preview-frame .page-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.preview-frame .round-button {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 1px 3px rgba(28, 32, 39, 0.2);
+}
+
+.preview-page figcaption {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.round-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.preview-image {
+  max-width: 100%;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  background: #fff;
 }
 
 button.primary {

@@ -1,4 +1,4 @@
-"""Image conversion: PNG <-> JPG and image -> single page PDF."""
+"""Image conversion: PNG <-> JPG and images -> PDF."""
 
 import io
 
@@ -15,22 +15,48 @@ CONVERSION_TARGETS = {
     loader.PDF: (),
 }
 
+# Targets that can hold several images at once, one input per page. Anything else
+# is a one-in one-out conversion.
+MULTI_TARGETS = (loader.PDF,)
+
 
 def targets_for(source_fmt: str) -> tuple[str, ...]:
     return CONVERSION_TARGETS.get(source_fmt, ())
 
 
+def multi_targets_for(source_fmt: str) -> tuple[str, ...]:
+    """The targets of targets_for that accept more than one image."""
+    return tuple(target for target in targets_for(source_fmt) if target in MULTI_TARGETS)
+
+
 def convert(data: bytes, source_fmt: str, target_fmt: str) -> bytes:
     """Convert an image blob to target_fmt and return the new bytes."""
+    return combine([data], source_fmt, target_fmt)
+
+
+def combine(datas: list[bytes], source_fmt: str, target_fmt: str) -> bytes:
+    """Convert one image, or lay several of them out as the pages of one document."""
+    if not datas:
+        raise ConversionError("No image was provided.")
     if target_fmt not in targets_for(source_fmt):
         raise ConversionError(f"Cannot convert {source_fmt.upper()} to {target_fmt.upper()}.")
+    if len(datas) > 1 and target_fmt not in MULTI_TARGETS:
+        raise ConversionError(f"Several images cannot be combined into one {target_fmt.upper()}.")
 
-    image = _open(data)
+    opened = [_open(data) for data in datas]
     if target_fmt == loader.PNG:
-        return _save(image, "PNG")
+        return _save(opened[0], "PNG")
     if target_fmt == loader.JPG:
-        return _save(_flatten(image), "JPEG", quality=Config.JPEG_QUALITY)
-    return _save(_flatten(image), "PDF", resolution=_dpi(image))
+        return _save(_flatten(opened[0]), "JPEG", quality=Config.JPEG_QUALITY)
+
+    pages = [_flatten(image) for image in opened]
+    return _save(
+        pages[0],
+        "PDF",
+        resolution=_dpi(opened[0]),
+        save_all=True,
+        append_images=pages[1:],
+    )
 
 
 def _open(data: bytes) -> Image.Image:

@@ -50,31 +50,42 @@ def render_previews(data: bytes, dpi: int | None = None) -> list[PagePreview]:
         document.close()
 
 
-def remove_pages(data: bytes, indices: list[int]) -> bytes:
-    """Return the document without the given zero based page indices."""
-    try:
-        reader = PdfReader(io.BytesIO(data))
-        if reader.is_encrypted:
-            raise PdfError("Encrypted PDFs are not supported.")
-        total = len(reader.pages)
-    except PdfReadError as exc:
-        raise PdfError("The PDF could not be read.") from exc
+def compose(documents: list[bytes], order: list[tuple[int, int]]) -> bytes:
+    """Build one PDF by taking pages from the documents in the given order.
 
-    dropped = set(indices)
-    for index in dropped:
-        if not 0 <= index < total:
-            raise PdfError(f"Page {index + 1} does not exist in a {total} page document.")
-    if len(dropped) == total:
+    Each entry of `order` is a (document index, zero based page index) pair, so a
+    single call covers merging several documents, dropping pages and reordering
+    what is left. Pages left out of `order` are simply not written.
+    """
+    if not documents:
+        raise PdfError("No PDF was provided.")
+    if not order:
         raise PdfError("A PDF must keep at least one page.")
 
+    readers = [_read(data) for data in documents]
     writer = PdfWriter()
-    for index, page in enumerate(reader.pages):
-        if index not in dropped:
-            writer.add_page(page)
+    for document, index in order:
+        if not 0 <= document < len(readers):
+            raise PdfError(f"Document {document + 1} was not uploaded.")
+        total = len(readers[document].pages)
+        if not 0 <= index < total:
+            raise PdfError(f"Page {index + 1} does not exist in a {total} page document.")
+        writer.add_page(readers[document].pages[index])
 
     buffer = io.BytesIO()
     writer.write(buffer)
     return buffer.getvalue()
+
+
+def _read(data: bytes) -> PdfReader:
+    try:
+        reader = PdfReader(io.BytesIO(data))
+        if reader.is_encrypted:
+            raise PdfError("Encrypted PDFs are not supported.")
+        len(reader.pages)  # forces the page tree, so a broken file fails here
+    except PdfReadError as exc:
+        raise PdfError("The PDF could not be read.") from exc
+    return reader
 
 
 def _open(data: bytes) -> pdfium.PdfDocument:
