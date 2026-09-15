@@ -83,6 +83,37 @@ def test_convert_rejects_mixed_formats(client, png_bytes, jpg_bytes):
     assert "same format" in response.json()["error"]
 
 
+def test_crop(client, png_bytes):
+    response = client.post(
+        "/api/image/crop",
+        files={"file": ("shot.png", png_bytes, "image/png")},
+        data={"left": 0.0, "top": 0.5, "right": 0.5, "bottom": 1.0},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == 'attachment; filename="shot.png"'
+    assert loader.detect_format(response.content) == "png"
+
+
+def test_crop_rejects_a_pdf(client, pdf_bytes):
+    response = client.post(
+        "/api/image/crop",
+        files={"file": ("doc.pdf", pdf_bytes, "application/pdf")},
+        data={"left": 0.0, "top": 0.0, "right": 1.0, "bottom": 1.0},
+    )
+    assert response.status_code == 400
+    assert "cropped" in response.json()["error"]
+
+
+def test_crop_reports_an_empty_selection(client, jpg_bytes):
+    response = client.post(
+        "/api/image/crop",
+        files={"file": ("photo.jpg", jpg_bytes, "image/jpeg")},
+        data={"left": 0.4, "top": 0.0, "right": 0.4, "bottom": 1.0},
+    )
+    assert response.status_code == 400
+    assert "empty" in response.json()["error"]
+
+
 def test_compose_removes_and_reorders(client, pdf_bytes):
     response = client.post(
         "/api/pdf/compose",

@@ -38,12 +38,27 @@ done: input features
     + pdf pages of all added files are merged, the button reads "Merge & apply changes"
     + images: several files become the pages of one pdf, the button reads "Merge & convert"
     + move buttons next to the "-" button change the page order, in both previews
+    + "Save as..." next to the download button picks folder & filename (browsers without
+      the file system access api name the file only, and the panel says so)
 
 done: pdf features
     + a removed page disappears instantly from both previews
     + undo/redo buttons in the pages panel and in the expanded preview bring it back (ctrl/cmd+z, shift+ctrl/cmd+z)
     + undo also steps back over an applied change, restoring the previous document
 
+done: image features (jpg, png, etc.)
+    + image preview has a selection frame around it for cropping (drag to draw, drag the
+      frame to move it, eight handles to resize, a click clears it; the expanded preview
+      shows and drives the same frame)
+    + a crop button next to "convert" that applies the selection frame, keeping the format
+      and making the cropped image the working file
+    + undo/redo compatability with the crop functionality (a frame drag is one step, and
+      undo steps back over an applied crop, frame included)
+
 done: main.py file to start backend and frontend
     + proper shutdown is ensured when terminating
+
+todo: deliverable
+    - a standalone macos app builder to install the project
+    - app should be visible in the "open with" option for relevant files
 

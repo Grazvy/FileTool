@@ -212,8 +212,73 @@ body {
 }
 
 .image-preview img {
+  display: block;
   max-width: 100%;
   max-height: 340px;
+}
+
+/* The crop stage is the image plus the selection frame laid exactly over it, so
+   the frame is positioned in percentages of the image and needs no measuring. */
+.crop-stage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  /* The frame is inset to the padding box, so any border belongs to the stage:
+     on the image it would offset the overlay by its own width. */
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.crop-stage img { border: 0; }
+
+.crop-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.crop-box {
+  position: absolute;
+  border: 1px solid #fff;
+  outline: 1px solid var(--accent);
+  /* Everything outside the selection is dimmed by the box's own shadow. */
+  box-shadow: 0 0 0 9999px rgba(28, 32, 39, 0.45);
+  cursor: move;
+}
+
+.crop-handle {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  margin: -6px 0 0 -6px;
+  border: 1px solid var(--accent);
+  background: #fff;
+}
+
+.crop-handle[data-edges="nw"] { top: 0; left: 0; cursor: nwse-resize; }
+.crop-handle[data-edges="n"] { top: 0; left: 50%; cursor: ns-resize; }
+.crop-handle[data-edges="ne"] { top: 0; left: 100%; cursor: nesw-resize; }
+.crop-handle[data-edges="w"] { top: 50%; left: 0; cursor: ew-resize; }
+.crop-handle[data-edges="e"] { top: 50%; left: 100%; cursor: ew-resize; }
+.crop-handle[data-edges="sw"] { top: 100%; left: 0; cursor: nesw-resize; }
+.crop-handle[data-edges="s"] { top: 100%; left: 50%; cursor: ns-resize; }
+.crop-handle[data-edges="se"] { top: 100%; left: 100%; cursor: nwse-resize; }
+
+.crop-size {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(28, 32, 39, 0.7);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .targets {

@@ -27,7 +27,7 @@ backend/            server package
   api/routes.py     HTTP layer: parse, validate, shape responses
   services/         processing logic, bytes in / bytes out
     loader.py       format detection and media-type/extension mapping
-    images.py       PNG <-> JPG, images -> PDF
+    images.py       PNG <-> JPG, images -> PDF, cropping
     pdf.py          page rendering and composition (merge, reorder, remove)
 frontend/           index.html, styles.css, app.js (served at /)
 launcher/
@@ -55,11 +55,17 @@ the server stores nothing.
 | `GET /health` | — | `{"status": "ok"}` |
 | `POST /load` | one `file` | `{format, name, size, targets[], multi_targets[], pages[]}`; `pages` holds `{index, width, height, image}` with `image` a PNG data URL (empty for images) |
 | `POST /convert` | one or more `file`, `target` (`png`\|`jpg`\|`pdf`) | Converted file as a binary download; several files are laid out as the pages of one document, in upload order, and only a `multi_targets` target accepts them |
+| `POST /image/crop` | one `file`, `left`, `top`, `right`, `bottom` | The cut out part of the image, in the format it came in, as a binary download |
 | `POST /pdf/compose` | one or more `file`, repeated `pages` as `document:page` (both zero-based) | A PDF holding exactly those pages, in that order, as a binary download |
 
 `/pdf/compose` is the single page-editing endpoint: the order of `pages` is the
 order of the result, pages left out are dropped, and references into several
 documents merge them. All uploads must be PDFs.
+
+`/image/crop` takes its box as fractions of the image (`0`–`1`, left < right and
+top < bottom), never as pixels: the client works from what it displays and the
+server owns the original's size. Rounding never collapses the box — at least one
+pixel is kept in each direction.
 
 Binary responses carry the correct `Content-Type` and
 `Content-Disposition: attachment; filename="…"`; the filename is derived from the
@@ -80,6 +86,8 @@ for the user and are shown verbatim in the UI. Unexpected exceptions stay 500s.
   able to hold several images at once in `images.MULTI_TARGETS`. The frontend
   renders whatever `/load` reports — options are never hardcoded in the UI.
 - A composed PDF must keep at least one page.
+- Cropping is an image operation: PDFs are rejected, and the output keeps the
+  input's format rather than converting.
 
 ## Frontend conventions
 
@@ -104,6 +112,16 @@ for the user and are shown verbatim in the UI. Unexpected exceptions stay 500s.
 - One image keeps the plain preview; several switch to the same card list, and the
   conversion targets narrow to `multi_targets`, so ordering the files orders the
   pages of the merged document.
+- A single image carries a crop frame over its preview, as a third editing state:
+  `state.crop`, the selection in fractions of the image, or `null` for the whole
+  image. Dragging on the image draws a frame, dragging the frame moves it and its
+  eight handles resize it; a click, or a selection too small to mean anything,
+  clears it. The frame is laid out in percentages inside a `.crop-stage` wrapped
+  tightly around the image, so it needs no measuring and no resize handling, and
+  every overlay showing that image — the panel and the expanded preview — paints
+  the same state, so a drag in one moves both. "Crop", next to "Convert", is shown
+  only for a single image and enabled only while the frame would cut something off;
+  its result becomes the working file, like an applied PDF change.
 - Each preview panel carries an "Expand" button top right that opens the same
   content, larger, in a modal `<dialog>` with its own scroll area. It closes on
   Escape, the backdrop or "Close". Pages are never upscaled past the resolution
@@ -113,12 +131,18 @@ for the user and are shown verbatim in the UI. Unexpected exceptions stay 500s.
   documents behind them change.
 - Undo/redo sit next to the primary button and in the popup header (`ctrl`/`cmd+z`,
   add `shift` to redo). A history step is a snapshot of the whole editable state —
-  documents, order, result — pushed when files are added, when a page is removed or
-  moved, and when a change is applied. Undo therefore also steps back over an apply
+  documents, order, crop selection, result — pushed when files are added, when a
+  page is removed or moved, at the end of a drag that changed the crop frame, and
+  when a change is applied. Undo therefore also steps back over an apply
   or a merge, restoring the previous documents together with their pending edits,
   and the result panel follows the step. A new upload starts a fresh history.
 - The result of an edit becomes the working file, so operations can be stacked.
 - Download happens client-side from the blob returned by the last operation.
+  "Download" hands it to the browser as-is; "Save as…" next to it asks for a
+  destination first, through `showSaveFilePicker` where the browser has it —
+  folder and filename, with the result's own type preselected so the extension is
+  kept. Browsers without the File System Access API fall back to naming the file
+  and the panel says so; a cancelled dialog is not an error.
 
 ## Testing
 

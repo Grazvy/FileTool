@@ -49,7 +49,13 @@
         <button type="button" class="ghost-button" id="image-expand" title="Expand the preview">Expand</button>
       </div>
       <p class="panel-hint" id="convert-hint" hidden>Use &minus; to drop a file and &uarr; &darr; to order them; they become the pages of one document.</p>
-      <div class="image-preview" id="image-preview-frame"><img id="image-preview" alt="Preview of the selected image"></div>
+      <p class="panel-hint" id="crop-hint" hidden>Drag on the image to choose the part to keep, drag the frame or its handles to adjust it, then crop.</p>
+      <div class="image-preview" id="image-preview-frame">
+        <div class="crop-stage">
+          <img id="image-preview" alt="Preview of the selected image">
+          <div class="crop-overlay" id="crop-overlay"></div>
+        </div>
+      </div>
       <div class="page-list" id="image-list" hidden></div>
       <fieldset class="targets">
         <legend>Convert to</legend>
@@ -57,6 +63,7 @@
       </fieldset>
       <div class="actions">
         <button type="button" class="primary" id="convert-button" disabled>Convert</button>
+        <button type="button" class="primary" id="crop-button" title="Keep only the selected part of the image" hidden disabled>Crop</button>
         <button type="button" class="ghost-button" id="image-undo" title="Undo" disabled>Undo</button>
         <button type="button" class="ghost-button" id="image-redo" title="Redo" disabled>Redo</button>
         <span class="action-note" id="convert-note"></span>
@@ -68,6 +75,8 @@
       <p class="file-meta" id="result-meta"></p>
       <div class="actions">
         <button type="button" class="primary" id="download-button" disabled>Download</button>
+        <button type="button" class="ghost-button" id="save-as-button" title="Choose a folder and a filename" disabled>Save as&hellip;</button>
+        <span class="action-note" id="result-note"></span>
       </div>
     </section>
   </main>

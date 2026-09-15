@@ -1,4 +1,4 @@
-"""Image conversion: PNG <-> JPG and images -> PDF."""
+"""Image editing: PNG <-> JPG, images -> PDF, and cropping."""
 
 import io
 
@@ -56,6 +56,47 @@ def combine(datas: list[bytes], source_fmt: str, target_fmt: str) -> bytes:
         resolution=_dpi(opened[0]),
         save_all=True,
         append_images=pages[1:],
+    )
+
+
+def crop(data: bytes, source_fmt: str, box: tuple[float, float, float, float]) -> bytes:
+    """Cut a rectangle out of an image, keeping the format it came in.
+
+    The box is `(left, top, right, bottom)` as fractions of the image's width and
+    height, so the caller never has to know the pixel size of the original.
+    """
+    if source_fmt not in (loader.PNG, loader.JPG):
+        raise ConversionError(f"{source_fmt.upper()} files cannot be cropped.")
+
+    image = _open(data)
+    cut = image.crop(_pixel_box(box, image.size))
+    if source_fmt == loader.PNG:
+        return _save(cut, "PNG")
+    return _save(_flatten(cut), "JPEG", quality=Config.JPEG_QUALITY)
+
+
+def _pixel_box(
+    box: tuple[float, float, float, float], size: tuple[int, int]
+) -> tuple[int, int, int, int]:
+    """Turn a fractional crop box into whole pixels inside the image.
+
+    Rounding can collapse a thin selection, so the result is widened to keep at
+    least one pixel in each direction.
+    """
+    left, top, right, bottom = box
+    if not all(0.0 <= value <= 1.0 for value in box):
+        raise ConversionError("The crop area must lie inside the image.")
+    if left >= right or top >= bottom:
+        raise ConversionError("The crop area is empty.")
+
+    width, height = size
+    left_px = min(round(left * width), width - 1)
+    top_px = min(round(top * height), height - 1)
+    return (
+        left_px,
+        top_px,
+        min(max(round(right * width), left_px + 1), width),
+        min(max(round(bottom * height), top_px + 1), height),
     )
 
 

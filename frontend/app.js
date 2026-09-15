@@ -19,11 +19,14 @@ const el = {
   pdfExpand: document.getElementById("pdf-expand"),
   convertPanel: document.getElementById("convert-panel"),
   convertHint: document.getElementById("convert-hint"),
+  cropHint: document.getElementById("crop-hint"),
   imageFrame: document.getElementById("image-preview-frame"),
   imagePreview: document.getElementById("image-preview"),
+  cropOverlay: document.getElementById("crop-overlay"),
   imageList: document.getElementById("image-list"),
   targetOptions: document.getElementById("target-options"),
   convertButton: document.getElementById("convert-button"),
+  cropButton: document.getElementById("crop-button"),
   imageUndo: document.getElementById("image-undo"),
   imageRedo: document.getElementById("image-redo"),
   convertNote: document.getElementById("convert-note"),
@@ -31,6 +34,8 @@ const el = {
   resultPanel: document.getElementById("result-panel"),
   resultMeta: document.getElementById("result-meta"),
   downloadButton: document.getElementById("download-button"),
+  saveAsButton: document.getElementById("save-as-button"),
+  resultNote: document.getElementById("result-note"),
   previewDialog: document.getElementById("preview-dialog"),
   previewTitle: document.getElementById("preview-title"),
   previewNote: document.getElementById("preview-note"),
@@ -48,8 +53,12 @@ const state = {
   // The document being built, as references into `documents`: { doc, page }.
   // Removing a page drops its reference, moving one swaps two of them.
   order: [],
+  // The crop selection over a single image, as fractions of it:
+  // { left, top, right, bottom }. null means the whole image.
+  crop: null,
   result: null, // { blob, name }
   busy: false,
+  saving: false, // a "Save as…" dialog or write is in flight
   urls: [], // object URLs handed to image cards, revoked when the session restarts
   history: [], // editing steps, oldest first; see snapshot()
   step: -1, // position in history; everything after it is redoable
@@ -200,6 +209,32 @@ async function convert() {
   }
 }
 
+async function cropImage() {
+  if (!canCrop()) return;
+  setBusy(true);
+  const size = selectionSize();
+  try {
+    const document_ = state.documents[state.order[0].doc];
+    const body = new FormData();
+    body.append("file", document_.file, document_.name);
+    Object.entries(cropBox()).forEach(([edge, value]) => body.append(edge, String(value)));
+    const result = await postFile("/api/image/crop", body);
+
+    // Like an applied PDF change, the cropped image becomes the working file.
+    await replaceDocuments(result);
+    state.crop = null;
+    setResult(result);
+    recordStep();
+    showInfo(size ? `Cropped to ${size.width} × ${size.height} px.` : "Cropped the image.");
+  } catch (error) {
+    showError(error.message);
+    if (!state.documents.length && state.step >= 0) restoreStep(state.step);
+  } finally {
+    setBusy(false);
+    render();
+  }
+}
+
 /** The files still referenced by the order, plus the order itself as `doc:page`. */
 function composeBody() {
   const used = [...new Set(state.order.map((ref) => ref.doc))];
@@ -322,8 +357,13 @@ function renderConvert() {
   el.imageFrame.hidden = !single;
   el.imageList.hidden = single;
   el.convertHint.hidden = single;
-  if (single) el.imagePreview.src = sourceOf(state.order[0]);
-  else renderList(el.imageList, cards.panel);
+  el.cropHint.hidden = !single;
+  if (single) {
+    // Only ever assign a new source; re-assigning the same one re-decodes it.
+    const source = sourceOf(state.order[0]);
+    if (el.imagePreview.src !== source) el.imagePreview.src = source;
+    paintCrop();
+  } else renderList(el.imageList, cards.panel);
   renderTargets(single ? state.documents[0].targets : state.documents[0].multiTargets);
 }
 
@@ -473,6 +513,11 @@ function updateActions() {
   el.applyButton.disabled = state.busy || !dirty;
   el.convertButton.textContent = files > 1 ? "Merge & convert" : "Convert";
   el.convertButton.disabled = state.busy || !el.targetOptions.querySelector("input:checked");
+  el.cropButton.hidden = !isSingleImage();
+  el.cropButton.disabled = !canCrop();
+  el.cropButton.title = canCrop()
+    ? "Keep only the selected part of the image"
+    : "Drag on the image to select the part to keep";
 
   const note = noteText();
   el.pdfNote.textContent = note;
@@ -494,8 +539,212 @@ function noteText() {
   if (added > 0) parts.push(`${added} file${added > 1 ? "s" : ""} added`);
   if (dropped > 0) parts.push(`${dropped} ${unit}${dropped > 1 ? "s" : ""} removed`);
   if (isReordered()) parts.push("order changed");
+  if (hasCropSelection()) {
+    const size = selectionSize();
+    parts.push(size ? `${size.width} × ${size.height} px selected` : "area selected");
+  }
   return parts.length ? `${parts.join(", ")} — not applied yet.` : "";
 }
+
+/* ---------- cropping ---------- */
+
+// The selection lives in `state.crop` as fractions of the image, so every
+// overlay showing that image - the panel preview and the expanded one - paints
+// the same frame and a drag in either moves both.
+
+const CROP_MIN_PX = 12; // the smallest selection a drag can leave, on screen
+const CROP_HANDLES = ["nw", "n", "ne", "w", "e", "sw", "s", "se"];
+
+const cropper = {
+  overlays: [], // every mounted overlay; the ones no longer in the page are dropped
+  drag: null, // { overlay, rect, mode, start, origin, moved } while a pointer is down
+  size: null, // natural size of the displayed image: { width, height }
+};
+
+function cropBox() {
+  return state.crop || { left: 0, top: 0, right: 1, bottom: 1 };
+}
+
+function cropIsFull() {
+  const box = cropBox();
+  return box.left <= 0 && box.top <= 0 && box.right >= 1 && box.bottom >= 1;
+}
+
+/** Is there a frame that would actually cut something off? */
+function hasCropSelection() {
+  return isSingleImage() && state.crop !== null && !cropIsFull();
+}
+
+function canCrop() {
+  return !state.busy && hasCropSelection();
+}
+
+function isSingleImage() {
+  return state.documents.length > 0 && state.format !== "pdf" && state.order.length === 1;
+}
+
+/** The selection in pixels of the original image, once its size is known. */
+function selectionSize() {
+  if (!cropper.size) return null;
+  const box = cropBox();
+  return {
+    width: Math.max(1, Math.round((box.right - box.left) * cropper.size.width)),
+    height: Math.max(1, Math.round((box.bottom - box.top) * cropper.size.height)),
+  };
+}
+
+/** Fill an overlay element with the frame and make it accept pointer drags. */
+function mountOverlay(overlay) {
+  const box = document.createElement("div");
+  box.className = "crop-box";
+  const label = document.createElement("span");
+  label.className = "crop-size";
+  box.append(label);
+  CROP_HANDLES.forEach((edges) => {
+    const handle = document.createElement("div");
+    handle.className = "crop-handle";
+    handle.dataset.edges = edges;
+    box.append(handle);
+  });
+  overlay.replaceChildren(box);
+  overlay.addEventListener("pointerdown", startCropDrag);
+  overlay.addEventListener("pointermove", moveCropDrag);
+  overlay.addEventListener("pointerup", endCropDrag);
+  overlay.addEventListener("pointercancel", endCropDrag);
+  cropper.overlays.push(overlay);
+  return overlay;
+}
+
+/** Wrap an image in a stage carrying its own overlay, for the expanded preview. */
+function cropStage(image) {
+  const stage = document.createElement("div");
+  stage.className = "crop-stage";
+  const overlay = document.createElement("div");
+  overlay.className = "crop-overlay";
+  stage.append(image, mountOverlay(overlay));
+  return stage;
+}
+
+function paintCrop() {
+  cropper.overlays = cropper.overlays.filter((overlay) => overlay.isConnected);
+  const box = cropBox();
+  const size = selectionSize();
+  cropper.overlays.forEach((overlay) => {
+    const frame = overlay.querySelector(".crop-box");
+    frame.style.left = `${box.left * 100}%`;
+    frame.style.top = `${box.top * 100}%`;
+    frame.style.width = `${(box.right - box.left) * 100}%`;
+    frame.style.height = `${(box.bottom - box.top) * 100}%`;
+    overlay.querySelector(".crop-size").textContent = size ? `${size.width} × ${size.height} px` : "";
+  });
+}
+
+function startCropDrag(event) {
+  if (state.busy || !isSingleImage() || cropper.drag) return;
+  const overlay = event.currentTarget;
+  const rect = overlay.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+
+  const handle = event.target.closest(".crop-handle");
+  const mode = handle ? handle.dataset.edges : event.target.closest(".crop-box") ? "move" : "draw";
+  const start = pointIn(rect, event);
+  cropper.drag = { overlay, rect, mode, start, origin: cropBox(), moved: false };
+  if (mode === "draw") {
+    state.crop = { left: start.x, top: start.y, right: start.x, bottom: start.y };
+    paintCrop();
+  }
+  // Capture keeps the drag alive when the pointer leaves the image.
+  try {
+    overlay.setPointerCapture(event.pointerId);
+  } catch {
+    // A pointer that is not live (a synthetic event) has nothing to capture.
+  }
+  event.preventDefault();
+}
+
+function moveCropDrag(event) {
+  if (!cropper.drag) return;
+  cropper.drag.moved = true;
+  state.crop = nextSelection(cropper.drag, pointIn(cropper.drag.rect, event));
+  paintCrop();
+  updateActions();
+}
+
+function endCropDrag(event) {
+  const drag = cropper.drag;
+  if (!drag) return;
+  cropper.drag = null;
+  if (drag.overlay.hasPointerCapture(event.pointerId)) {
+    drag.overlay.releasePointerCapture(event.pointerId);
+  }
+
+  const box = cropBox();
+  const tooSmall =
+    (box.right - box.left) * drag.rect.width < CROP_MIN_PX ||
+    (box.bottom - box.top) * drag.rect.height < CROP_MIN_PX;
+  // A click, or a selection too small to mean anything, clears the frame.
+  if (!drag.moved || tooSmall) state.crop = null;
+
+  paintCrop();
+  // One drag is one editing step, so undo walks back through the frame as well.
+  if (!sameBox(drag.origin, cropBox())) recordStep();
+  updateActions();
+}
+
+/** Where the pointer is inside an overlay, as fractions clamped to the image. */
+function pointIn(rect, event) {
+  return {
+    x: clamp((event.clientX - rect.left) / rect.width, 0, 1),
+    y: clamp((event.clientY - rect.top) / rect.height, 0, 1),
+  };
+}
+
+function nextSelection(drag, point) {
+  const origin = drag.origin;
+  if (drag.mode === "draw") {
+    return {
+      left: Math.min(drag.start.x, point.x),
+      top: Math.min(drag.start.y, point.y),
+      right: Math.max(drag.start.x, point.x),
+      bottom: Math.max(drag.start.y, point.y),
+    };
+  }
+  if (drag.mode === "move") {
+    const dx = clamp(point.x - drag.start.x, -origin.left, 1 - origin.right);
+    const dy = clamp(point.y - drag.start.y, -origin.top, 1 - origin.bottom);
+    return {
+      left: origin.left + dx,
+      top: origin.top + dy,
+      right: origin.right + dx,
+      bottom: origin.bottom + dy,
+    };
+  }
+
+  // A handle drags only the edges it is named after; the others stay put.
+  const minX = CROP_MIN_PX / drag.rect.width;
+  const minY = CROP_MIN_PX / drag.rect.height;
+  const next = { ...origin };
+  if (drag.mode.includes("w")) next.left = clamp(point.x, 0, origin.right - minX);
+  if (drag.mode.includes("e")) next.right = clamp(point.x, origin.left + minX, 1);
+  if (drag.mode.includes("n")) next.top = clamp(point.y, 0, origin.bottom - minY);
+  if (drag.mode.includes("s")) next.bottom = clamp(point.y, origin.top + minY, 1);
+  return next;
+}
+
+function sameBox(one, other) {
+  return ["left", "top", "right", "bottom"].every((edge) => one[edge] === other[edge]);
+}
+
+function clamp(value, low, high) {
+  return Math.min(Math.max(value, low), high);
+}
+
+mountOverlay(el.cropOverlay);
+el.imagePreview.addEventListener("load", () => {
+  cropper.size = { width: el.imagePreview.naturalWidth, height: el.imagePreview.naturalHeight };
+  paintCrop();
+  updateActions();
+});
 
 /* ---------- history ---------- */
 
@@ -506,6 +755,7 @@ function snapshot() {
     format: state.format,
     documents: [...state.documents],
     order: state.order.map((ref) => ({ ...ref })),
+    crop: state.crop && { ...state.crop },
     result: state.result,
   };
 }
@@ -537,6 +787,7 @@ function restoreStep(step) {
   state.format = entry.format;
   state.documents = [...entry.documents];
   state.order = entry.order.map((ref) => ({ ...ref }));
+  state.crop = entry.crop && { ...entry.crop };
 
   if (entry.result) setResult(entry.result);
   else resetResult();
@@ -563,7 +814,9 @@ function renderExpanded() {
     image.className = "preview-image";
     image.src = sourceOf(state.order[0]);
     image.alt = state.documents[0].name;
-    el.previewBody.replaceChildren(image);
+    // The larger view carries the same selection frame, on the same state.
+    el.previewBody.replaceChildren(cropStage(image));
+    paintCrop();
   } else {
     renderList(el.previewBody, cards.expanded);
   }
@@ -585,12 +838,19 @@ function setResult(result) {
   el.resultMeta.textContent = `${result.name} — ${formatSize(result.blob.size)}`;
   el.resultPanel.hidden = false;
   el.downloadButton.disabled = false;
+  el.saveAsButton.disabled = false;
+  el.resultNote.textContent = canPickFolder()
+    ? ""
+    : "This browser cannot offer a folder — “Save as…” only names the file.";
 }
 
 function resetResult() {
   state.result = null;
+  state.saving = false;
   el.resultPanel.hidden = true;
   el.downloadButton.disabled = true;
+  el.saveAsButton.disabled = true;
+  el.resultNote.textContent = "";
 }
 
 function reset() {
@@ -599,8 +859,10 @@ function reset() {
   state.format = null;
   state.documents = [];
   state.order = [];
+  state.crop = null;
   state.history = [];
   state.step = -1;
+  cropper.size = null;
   closePreview();
   cards.panel.clear();
   el.pageList.replaceChildren();
@@ -660,6 +922,7 @@ function formatSize(bytes) {
 
 el.applyButton.addEventListener("click", applyChanges);
 el.convertButton.addEventListener("click", convert);
+el.cropButton.addEventListener("click", cropImage);
 el.pdfExpand.addEventListener("click", openExpanded);
 el.imageExpand.addEventListener("click", openExpanded);
 [el.undoButton, el.imageUndo, el.previewUndo].forEach((b) => b.addEventListener("click", undo));
@@ -679,12 +942,73 @@ document.addEventListener("keydown", (event) => {
   else undo();
 });
 
+/* ---------- saving ---------- */
+
+// "Download" hands the blob straight to the browser, which decides where it lands;
+// "Save as…" asks first. Folder and filename come from the browser's own save
+// dialog where the File System Access API exists, and where it does not the user
+// still gets to name the file before it goes to the download folder.
 el.downloadButton.addEventListener("click", () => {
-  if (!state.result) return;
+  if (state.result) downloadResult(state.result.name);
+});
+
+el.saveAsButton.addEventListener("click", saveAs);
+
+function downloadResult(name) {
   const url = URL.createObjectURL(state.result.blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = state.result.name;
+  link.download = name;
   link.click();
   URL.revokeObjectURL(url);
-});
+}
+
+function canPickFolder() {
+  return typeof window.showSaveFilePicker === "function";
+}
+
+async function saveAs() {
+  if (!state.result || state.saving) return;
+  const { blob, name } = state.result;
+
+  if (!canPickFolder()) {
+    const chosen = window.prompt("Save the file as:", name);
+    if (chosen === null) return;
+    const target = chosen.trim() || name;
+    downloadResult(target);
+    showInfo(`Saved as ${target}, in the folder this browser downloads to.`);
+    return;
+  }
+
+  setSaving(true);
+  try {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: name,
+      types: pickerTypes(name, blob.type),
+    });
+    const stream = await handle.createWritable();
+    await stream.write(blob);
+    await stream.close();
+    showInfo(`Saved as ${handle.name}.`);
+  } catch (error) {
+    // Closing the dialog without choosing is not a failure.
+    if (error.name !== "AbortError") showError(`The file could not be saved: ${error.message}`);
+  } finally {
+    setSaving(false);
+  }
+}
+
+/** Offer the result's own kind in the save dialog, so the extension is kept. */
+function pickerTypes(name, type) {
+  const match = name.match(/\.[A-Za-z0-9]+$/);
+  if (!match || !type) return [];
+  const extension = match[0].toLowerCase();
+  const label = TARGET_LABELS[extension.slice(1).replace("jpeg", "jpg")] || extension.slice(1).toUpperCase();
+  return [{ description: `${label} file`, accept: { [type]: [extension] } }];
+}
+
+function setSaving(saving) {
+  state.saving = saving;
+  el.saveAsButton.disabled = saving;
+  el.downloadButton.disabled = saving || !state.result;
+}

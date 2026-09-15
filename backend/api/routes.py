@@ -62,6 +62,27 @@ async def convert(file: list[UploadFile] = File(...), target: str = Form(...)) -
     return _download(converted, target_fmt, _stem(file[0].filename, source_fmt))
 
 
+@router.post("/image/crop")
+async def crop(
+    file: UploadFile = File(...),
+    left: float = Form(...),
+    top: float = Form(...),
+    right: float = Form(...),
+    bottom: float = Form(...),
+) -> Response:
+    """Cut the given rectangle out of one image, keeping its format.
+
+    The rectangle is expressed as fractions of the image, so the client works
+    from what it displays and never needs the original pixel size.
+    """
+    data = await _read(file)
+    fmt = loader.detect_format(data)
+    if fmt == loader.PDF:
+        raise UnsupportedFormatError("Only PNG and JPG files can be cropped.")
+    result = images.crop(data, fmt, (left, top, right, bottom))
+    return _download(result, fmt, _stem(file.filename, fmt))
+
+
 @router.post("/pdf/compose")
 async def compose(
     file: list[UploadFile] = File(...),
