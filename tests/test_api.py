@@ -2,7 +2,8 @@ from backend.services import loader, pdf
 
 
 def test_health(client):
-    assert client.get("/api/health").json() == {"status": "ok"}
+    # "app" tells the page whether it can offer to stop the app; see test_handoff.
+    assert client.get("/api/health").json() == {"status": "ok", "app": False}
 
 
 def test_load_image_offers_conversion_targets(client, png_bytes):

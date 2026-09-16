@@ -8,6 +8,7 @@
 
 # if a feature/attribute is implemented, set marker to "+"
 # if all requirements are implemented, set marker to "done"
+# NEVER implement todo's that were not mentioned in the prompt
 
 done: fully implemented specification
     + implemented requirement
@@ -58,7 +59,16 @@ done: image features (jpg, png, etc.)
 done: main.py file to start backend and frontend
     + proper shutdown is ensured when terminating
 
-todo: deliverable
-    - a standalone macos app builder to install the project
-    - app should be visible in the "open with" option for relevant files
-
+done: deliverable builder
+    + a standalone macos app builder to install the project
+      ("python -m tools.build_macos --install", carries its own python, icon drawn by code)
+    + app should be visible in the "open with" option for relevant files
+      (pdf, png and jpg, offered next to the default app rather than replacing it)
+    + files opened from the finder reach the page, at launch and while already running
+      (in one window; several selected files open together, as one session)
+    + "Quit" in the page stops the app and closes its tab; closing the tab stops the app
+      too, a few seconds later, so it never keeps running hidden in the background
+    + make sure no server keeps running if the app gets removed from programs
+      (a running app stops itself within seconds of being moved to the trash)
+    + make sure its not available in the open-with section after removal from programs
+      (installing unregisters the build copy, so only the installed app is ever offered)

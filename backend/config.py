@@ -1,9 +1,13 @@
 """Runtime configuration, overridable through FILETOOL_* environment variables."""
 
 import os
+import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# In a PyInstaller bundle the code runs from a temporary extraction root and the
+# frontend travels with it; from a checkout it sits next to the backend package.
+IS_BUNDLED = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+PROJECT_ROOT = Path(sys._MEIPASS) if IS_BUNDLED else Path(__file__).resolve().parent.parent
 
 
 class Config:

@@ -43,6 +43,7 @@ const el = {
   previewClose: document.getElementById("preview-close"),
   previewUndo: document.getElementById("preview-undo"),
   previewRedo: document.getElementById("preview-redo"),
+  quitButton: document.getElementById("quit-button"),
 };
 
 const state = {
@@ -1012,3 +1013,108 @@ function setSaving(saving) {
   el.saveAsButton.disabled = saving;
   el.downloadButton.disabled = saving || !state.result;
 }
+
+/* ---------- the app ---------- */
+
+// Running as the macOS app, the page keeps one connection to the server open for
+// as long as it is open. Files the operating system hands over ("Open with")
+// arrive through it, and when it closes the server knows the page is gone and
+// stops too: the app has no other window to close.
+const APP_HEADERS = { "X-File-Tool": "1" };
+const RECONNECT_MS = 1000;
+const IDLE_RETRY_MS = 300;
+
+const appConnection = { stopped: false, pickUpScheduled: false };
+
+async function followApp() {
+  while (!appConnection.stopped) {
+    try {
+      const response = await fetch("/api/events", { headers: APP_HEADERS });
+      if (!response.ok || !response.body) throw new Error("no connection");
+      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+      let partial = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const lines = (partial + value).split("\n");
+        partial = lines.pop();
+        if (lines.includes("files")) pickUpWhenIdle();
+      }
+    } catch {
+      // The server is restarting or gone; try again shortly.
+    }
+    if (!appConnection.stopped) await new Promise((resolve) => setTimeout(resolve, RECONNECT_MS));
+  }
+}
+
+// A claimed file is gone from the server, so it is only claimed at a moment the
+// page can load it: an operation in progress finishes first.
+function pickUpWhenIdle() {
+  if (appConnection.pickUpScheduled) return;
+  appConnection.pickUpScheduled = true;
+  const attempt = () => {
+    if (state.busy || state.saving) {
+      setTimeout(attempt, IDLE_RETRY_MS);
+      return;
+    }
+    appConnection.pickUpScheduled = false;
+    pickUpOpenedFiles();
+  };
+  attempt();
+}
+
+async function pickUpOpenedFiles() {
+  let waiting;
+  try {
+    const response = await fetch("/api/handoff", { headers: APP_HEADERS });
+    if (!response.ok) return;
+    waiting = (await response.json()).files;
+  } catch {
+    return; // the server is gone; the connection will notice
+  }
+  if (!waiting || !waiting.length) return;
+
+  const files = [];
+  for (const entry of waiting) {
+    try {
+      const response = await fetch(`/api/handoff/${entry.token}`, { headers: APP_HEADERS });
+      if (!response.ok) throw new Error((await response.json()).error);
+      files.push(new File([await response.blob()], entry.name));
+    } catch (error) {
+      showError(`${entry.name} could not be opened: ${error.message}`);
+    }
+  }
+  // A file handed over by the OS starts a new session, exactly like dropping it.
+  if (files.length) await startWith(files);
+}
+
+async function connectToApp() {
+  let running = false;
+  try {
+    const response = await fetch("/api/health", { headers: APP_HEADERS });
+    running = (await response.json()).app === true;
+  } catch {
+    return;
+  }
+  el.quitButton.hidden = !running;
+  if (running) followApp();
+}
+
+el.quitButton.addEventListener("click", async () => {
+  if (!window.confirm("Stop File Tool? Anything not saved will be lost.")) return;
+  el.quitButton.disabled = true;
+  appConnection.stopped = true; // no reconnecting to the app being stopped
+  try {
+    await fetch("/api/quit", { method: "POST", headers: APP_HEADERS });
+  } catch {
+    // The server closing the connection as it stops is the expected ending.
+  }
+  document.body.classList.add("stopped");
+  showInfo("File Tool has stopped. You can close this tab.");
+  // A browser lets a page close its own tab when the tab was opened for it and
+  // has no history to go back to, which is how the app opens it. Where it
+  // refuses, the message above stays.
+  window.close();
+});
+
+connectToApp();

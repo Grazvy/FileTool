@@ -1,4 +1,6 @@
+import asyncio
 import contextlib
+import shutil
 import signal
 import socket
 import subprocess
@@ -10,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.app import create_app
 from launcher import app_launcher
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -68,6 +71,76 @@ def test_shutdown_handler_stops_the_server():
     assert server.should_exit is True
 
 
+def make_bundle(directory: Path) -> Path:
+    bundle = directory / "FileTool.app"
+    (bundle / "Contents" / "MacOS").mkdir(parents=True)
+    (bundle / "Contents" / "Info.plist").write_text("plist")
+    (bundle / "Contents" / "MacOS" / "FileTool").write_text("binary")
+    return bundle
+
+
+def test_the_running_bundle_is_found_from_the_executable(tmp_path):
+    bundle = make_bundle(tmp_path)
+    executable = bundle / "Contents" / "MacOS" / "FileTool"
+    assert app_launcher.running_bundle(str(executable), bundled=True) == bundle.resolve()
+
+
+def test_there_is_no_bundle_when_running_from_a_checkout(tmp_path):
+    executable = make_bundle(tmp_path) / "Contents" / "MacOS" / "FileTool"
+    assert app_launcher.running_bundle(str(executable), bundled=False) is None
+
+
+def test_there_is_no_bundle_when_the_executable_is_not_in_an_app(tmp_path):
+    assert app_launcher.running_bundle(str(tmp_path / "FileTool"), bundled=True) is None
+
+
+def test_an_app_in_place_is_not_removed(tmp_path):
+    assert not app_launcher.is_removed(make_bundle(tmp_path))
+
+
+def test_an_app_moved_to_the_trash_is_removed(tmp_path):
+    bundle = make_bundle(tmp_path)
+    (tmp_path / ".Trash").mkdir()
+    bundle.rename(tmp_path / ".Trash" / bundle.name)
+    assert app_launcher.is_removed(bundle)
+
+
+def test_a_deleted_app_is_removed(tmp_path):
+    bundle = make_bundle(tmp_path)
+    shutil.rmtree(bundle)
+    assert app_launcher.is_removed(bundle)
+
+
+def test_the_server_stops_once_its_app_is_removed(tmp_path, monkeypatch):
+    """Dragging the app to the Trash must not leave its server running."""
+    monkeypatch.setattr(app_launcher, "REMOVAL_POLL_SECONDS", 0.01)
+    bundle = make_bundle(tmp_path)
+    app, server = create_app(), FakeServer()
+    app_launcher.watch_for_removal(app, server, bundle)
+
+    async def scenario() -> bool:
+        for hook in app.router.on_startup:
+            await hook()
+        await asyncio.sleep(0.05)
+        still_running = not server.should_exit
+        shutil.rmtree(bundle)
+        for _ in range(200):
+            if server.should_exit:
+                break
+            await asyncio.sleep(0.01)
+        return still_running
+
+    assert asyncio.run(scenario()) is True
+    assert server.should_exit is True
+
+
+def test_nothing_is_watched_outside_a_bundle():
+    app = create_app()
+    hooks = list(app.router.on_startup)
+    app_launcher.watch_for_removal(app, FakeServer(), None)
+    assert app.router.on_startup == hooks
+
+
 def test_run_reports_a_missing_frontend(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(app_launcher.Config, "FRONTEND_DIR", tmp_path / "absent")
     assert app_launcher.run(open_browser=False) == 1
@@ -78,7 +151,14 @@ def test_main_passes_arguments_through(monkeypatch):
     captured = {}
     monkeypatch.setattr(app_launcher, "run", lambda **kwargs: captured.update(kwargs) or 0)
     assert app_launcher.main(["--host", "0.0.0.0", "--port", "9123", "--no-browser"]) == 0
-    assert captured == {"host": "0.0.0.0", "port": 9123, "open_browser": False}
+    assert captured == {"host": "0.0.0.0", "port": 9123, "open_browser": False, "files": []}
+
+
+def test_main_takes_files_to_open(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(app_launcher, "run", lambda **kwargs: captured.update(kwargs) or 0)
+    assert app_launcher.main(["a.pdf", "b.pdf"]) == 0
+    assert captured["files"] == ["a.pdf", "b.pdf"]
 
 
 @pytest.mark.parametrize("stop_signal", [signal.SIGINT, signal.SIGTERM])

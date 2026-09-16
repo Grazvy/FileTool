@@ -1,21 +1,113 @@
 """API routes. Every request carries its own file: the server keeps no state."""
 
+import asyncio
 import base64
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, UploadFile
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, File, Form, Header, UploadFile
+from fastapi.responses import Response, StreamingResponse
 
+from backend import desktop
 from backend.config import Config
-from backend.errors import PdfError, UnsupportedFormatError, UploadTooLargeError
+from backend.errors import FileToolError, PdfError, UnsupportedFormatError, UploadTooLargeError
 from backend.services import images, loader, pdf
 
 router = APIRouter(prefix="/api")
 
+# Endpoints that act on the app itself rather than on an upload require this
+# header. It is not a secret: a header no simple request may carry forces a
+# browser to preflight, and the app answers no preflight, so a page on another
+# origin cannot reach these from the user's browser.
+APP_HEADER = "x-file-tool"
+
+# How often an open page's connection checks whether the app is stopping.
+EVENTS_CHECK_SECONDS = 0.5
+
+
+async def app_client(x_file_tool: str | None = Header(default=None)) -> None:
+    """Reject desktop-endpoint calls that did not come from our own page."""
+    if x_file_tool is None:
+        raise FileToolError("This endpoint is only for the File Tool page.")
+
 
 @router.get("/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    return {"status": "ok", "app": desktop.can_quit()}
+
+
+@router.get("/events", dependencies=[Depends(app_client)])
+async def events() -> StreamingResponse:
+    """Hold one connection per open page, for as long as the page is open.
+
+    Through it the page learns that files are waiting — a line reading `files` —
+    and from it closing the app learns that the page is gone. It ends by itself
+    when the app stops, so an open page never holds the shutdown up.
+    """
+    return StreamingResponse(_page_events(), media_type="text/plain")
+
+
+async def _page_events():
+    # Registered once streaming starts, so a client that is gone before then is
+    # never counted as an open page.
+    page = desktop.connect_page()
+    try:
+        yield "connected\n"
+        while True:
+            if page.wake.is_set():
+                page.wake.clear()
+                yield "files\n"
+            if desktop.is_stopping():
+                return
+            try:
+                await asyncio.wait_for(page.wake.wait(), timeout=EVENTS_CHECK_SECONDS)
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        desktop.disconnect_page(page)
+
+
+@router.get("/handoff", dependencies=[Depends(app_client)])
+async def handoff() -> dict:
+    """List the files the OS asked the app to open, and forget them.
+
+    The page asks when its connection to `/api/events` says files are waiting.
+    """
+    files = []
+    for entry in desktop.claim():
+        try:
+            size = entry.size
+        except OSError:
+            continue  # it went away between being offered and being claimed
+        files.append({"token": entry.token, "name": entry.name, "size": size})
+    return {"files": files}
+
+
+@router.get("/handoff/{token}", dependencies=[Depends(app_client)])
+async def handoff_file(token: str) -> Response:
+    """Hand over the bytes of a claimed file, once.
+
+    The path is one the OS gave the launcher; a request only ever names a token
+    that was handed out for it, so this cannot be pointed at another file.
+    """
+    entry = desktop.take(token)
+    if entry is None:
+        raise FileToolError("That file is no longer waiting to be opened.")
+    try:
+        data = entry.path.read_bytes()
+    except OSError:
+        raise FileToolError(f"{entry.name} could not be read.") from None
+    if len(data) > Config.MAX_UPLOAD_BYTES:
+        limit_mb = Config.MAX_UPLOAD_BYTES // (1024 * 1024)
+        raise UploadTooLargeError(f"{entry.name} is larger than the {limit_mb} MB limit.")
+    return Response(content=data, media_type=loader.media_type(loader.detect_format(data)))
+
+
+@router.post("/quit", dependencies=[Depends(app_client)])
+async def quit_app() -> dict:
+    """Stop the app. The page offers this only when it runs as the macOS app."""
+    if not desktop.request_quit():
+        raise FileToolError("This copy of File Tool is not running as the app.")
+    return {"stopping": True}
 
 
 @router.post("/load")

@@ -19,17 +19,33 @@ body {
 }
 
 .topbar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
   padding: 24px 32px 12px;
 }
 
 .topbar h1 {
+  grid-area: 1 / 1;
   margin: 0;
   font-size: 22px;
 }
 
 .tagline {
+  grid-area: 2 / 1;
   margin: 4px 0 0;
   color: var(--muted);
+}
+
+/* "Quit" sits on the right, against both rows the title and tagline make. */
+#quit-button {
+  grid-area: 1 / 2 / span 2 / auto;
+}
+
+/* Once the app has stopped, nothing on the page can still reach it. */
+body.stopped .layout {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .layout {
